@@ -1,0 +1,11 @@
+{
+  "syncthingPath": "C:\\Users\\erins\\AppData\\Local\\Programs\\Syncthing\\syncthing.exe",
+  "manualPath": "",
+  "port": 8385,
+  "autoStart": true,
+  "deviceName": "Obsidian",
+  "syncInterval": 300,
+  "showNotifications": true,
+  "debugMode": false,
+  "webUIEnabled": true
+}

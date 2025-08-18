@@ -1,0 +1,11 @@
+{
+  "id": "syncthing-sync",
+  "name": "SyncthingSync",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Desktop-only Syncthing integration for Obsidian vault synchronization without running Syncthing separately",
+  "author": "Erin Skidds",
+  "authorUrl": "https://github.com/DudeThatsErin",
+  "fundingUrl": "https://buymeacoffee.com/erinskidds",
+  "isDesktopOnly": true
+}
