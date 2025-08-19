@@ -1,5 +1,9 @@
 # SyncthingSync
 
+<img width="1536" height="1718" alt="image" src="https://github.com/user-attachments/assets/3fc624eb-ee54-4851-a849-0518c47aa819" />
+
+<img width="283" height="84" alt="image" src="https://github.com/user-attachments/assets/6633cf75-9235-491d-9a19-7a40f58fca44" />
+
 A desktop-only Obsidian plugin that provides a convenient interface to manage an external Syncthing installation for vault synchronization.
 
 **⚠️ IMPORTANT: This plugin requires Syncthing to be installed separately on your system. It cannot run Syncthing internally.**
