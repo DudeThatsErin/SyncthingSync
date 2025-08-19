@@ -1,17 +1,17 @@
 # SyncthingSync
 
-A desktop-only Obsidian plugin that integrates Syncthing directly into Obsidian for seamless vault synchronization without running Syncthing separately.
+A desktop-only Obsidian plugin that provides a convenient interface to manage an external Syncthing installation for vault synchronization.
+
+**⚠️ IMPORTANT: This plugin requires Syncthing to be installed separately on your system. It cannot run Syncthing internally.**
 
 ## Features
 
-- **Desktop-Only Integration**: Run Syncthing directly from within Obsidian
-- **Auto-Detection**: Automatically detects Syncthing installation
-- **Web UI Access**: Optional web interface for advanced configuration
-- **Real-time Sync**: Configurable sync intervals with manual sync triggers
-- **Status Monitoring**: View sync status and folder information
+- **Syncthing Management**: Start/stop external Syncthing process from Obsidian
+- **Auto-Detection**: Automatically detects existing Syncthing installation
+- **Web UI Access**: Quick access to Syncthing's web interface
+- **Status Monitoring**: View Syncthing running status
 - **Status Bar Indicator**: Shows Syncthing running/stopped status in Obsidian's status bar
-- **Notifications**: Optional sync status notifications
-- **Auto-Start**: Automatically start Syncthing when Obsidian opens
+- **Notifications**: Optional status notifications
 
 ## Installation
 
@@ -31,13 +31,18 @@ A desktop-only Obsidian plugin that integrates Syncthing directly into Obsidian 
 
 ## Prerequisites
 
-**Syncthing must be installed on your system.** Download from [syncthing.net](https://syncthing.net/)
+**⚠️ REQUIRED: Syncthing must be installed and running on your system.**
 
-### Installation Locations
-The plugin will auto-detect Syncthing in these locations:
-- Windows: `C:\Program Files\Syncthing\syncthing.exe`
-- macOS/Linux: `/usr/bin/syncthing` or `/usr/local/bin/syncthing`
-- User directory: `~/syncthing/syncthing`
+1. **Download Syncthing**: Get it from [syncthing.net](https://syncthing.net/)
+2. **Install Syncthing**: Follow the installation instructions for your OS
+3. **Start Syncthing**: Run Syncthing before using this plugin
+4. **Configure Syncthing**: Set up your devices and folders via Syncthing's web UI
+
+### How This Plugin Works
+- This plugin is a **management interface** for external Syncthing
+- It **cannot** run Syncthing internally due to Obsidian's security limitations  
+- It **detects** and **controls** an existing Syncthing installation
+- Syncthing must be installed separately on your system
 
 ## Configuration
 

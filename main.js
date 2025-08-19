@@ -10,13 +10,12 @@ const DEFAULT_SETTINGS = {
     syncthingPath: '',
     manualPath: '',
     port: 8384,
-    autoStart: false,
     deviceName: 'Obsidian',
-    syncInterval: 300, // 5 minutes
+    syncInterval: 300,
+    autoStart: false,
     showNotifications: true,
     apiKey: 'obsidian-syncthing-key',
     useExistingInstance: false,
-    autoDownload: true,
 };
 
 class SyncthingSyncSettingTab extends PluginSettingTab {
@@ -95,6 +94,16 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
         });
 
         this.createAccordionSection(containerEl, 'Settings', () => {
+            // Installation instructions
+            new Setting(containerEl)
+                .setName('Syncthing Installation')
+                .setDesc('Download Syncthing from syncthing.net/downloads and install it')
+                .addButton(button => button
+                    .setButtonText('Open Download Page')
+                    .onClick(() => {
+                        require('electron').shell.openExternal('https://syncthing.net/downloads/');
+                    }));
+
             // Syncthing executable path
             new Setting(containerEl)
                 .setName('Auto-detected Path')
@@ -302,6 +311,7 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
         // Remove the temp container
         tempContainer.remove();
     }
+
 }
 
 class SyncStatusModal extends Modal {
@@ -467,7 +477,34 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
     async detectSyncthingPath() {
         console.log('Starting Syncthing detection...');
         
-        throw new Error('Syncthing executable not found. Please enable auto-download in settings or install Syncthing manually.');
+        // Check manual path first
+        if (this.settings.manualPath) {
+            const fs = require('fs');
+            if (fs.existsSync(this.settings.manualPath)) {
+                console.log('Using manual path:', this.settings.manualPath);
+                return this.settings.manualPath;
+            }
+        }
+        
+        // Check common installation paths
+        const fs = require('fs');
+        const commonPaths = [
+            'C:\\Program Files\\Syncthing\\syncthing.exe',
+            'C:\\Program Files (x86)\\Syncthing\\syncthing.exe',
+            '/usr/bin/syncthing',
+            '/usr/local/bin/syncthing',
+            process.env.HOME + '/syncthing/syncthing'
+        ];
+        
+        for (const path of commonPaths) {
+            if (fs.existsSync(path)) {
+                console.log('Found Syncthing at:', path);
+                return path;
+            }
+        }
+        
+        console.log('Syncthing executable not found in common paths');
+        return null;
     }
 
     getBundledSyncthingPath() {
@@ -484,145 +521,7 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         return bundledPath;
     }
 
-    async downloadSyncthing() {
-        const platform = process.platform;
-        const arch = process.arch;
-        
-        // Map Node.js arch to Syncthing arch names
-        const archMap = {
-            'x64': 'amd64',
-            'arm64': 'arm64',
-            'ia32': '386'
-        };
-        
-        const syncthingArch = archMap[arch];
-        if (!syncthingArch) {
-            throw new Error(`Unsupported architecture: ${arch}`);
-        }
-        
-        // Map platform names
-        const platformMap = {
-            'win32': 'windows',
-            'darwin': 'darwin',
-            'linux': 'linux'
-        };
-        
-        const syncthingPlatform = platformMap[platform];
-        if (!syncthingPlatform) {
-            throw new Error(`Unsupported platform: ${platform}`);
-        }
-        
-        const version = 'v1.27.12'; // Latest stable version
-        const fileName = `syncthing-${syncthingPlatform}-${syncthingArch}-${version}`;
-        const archiveExt = platform === 'win32' ? 'zip' : 'tar.gz';
-        const downloadUrl = `https://github.com/syncthing/syncthing/releases/download/${version}/${fileName}.${archiveExt}`;
-        
-        const pluginDir = path.dirname(__filename);
-        const binDir = path.join(pluginDir, 'bin', `${platform}-${arch}`);
-        const archivePath = path.join(binDir, `${fileName}.${archiveExt}`);
-        
-        // Create directories
-        const fs = require('fs');
-        if (!fs.existsSync(binDir)) {
-            fs.mkdirSync(binDir, { recursive: true });
-        }
-        
-        if (this.settings.showNotifications) {
-            new Notice('Downloading Syncthing...');
-        }
-        
-        try {
-            // Download the archive
-            const https = require('https');
-            const response = await new Promise((resolve, reject) => {
-                https.get(downloadUrl, resolve).on('error', reject);
-            });
-            
-            if (response.statusCode !== 200) {
-                throw new Error(`Download failed: ${response.statusCode}`);
-            }
-            
-            // Save to file
-            const writeStream = fs.createWriteStream(archivePath);
-            response.pipe(writeStream);
-            
-            await new Promise((resolve, reject) => {
-                writeStream.on('finish', resolve);
-                writeStream.on('error', reject);
-            });
-            
-            // Extract the archive
-            let executablePath;
-            if (platform === 'win32') {
-                executablePath = await this.extractZip(archivePath, binDir, fileName);
-            } else {
-                executablePath = await this.extractTarGz(archivePath, binDir, fileName);
-            }
-            
-            // Clean up archive
-            fs.unlinkSync(archivePath);
-            
-            if (this.settings.showNotifications) {
-                new Notice('Syncthing downloaded successfully');
-            }
-            
-            return executablePath;
-            
-        } catch (error) {
-            console.error('Download failed:', error);
-            throw new Error(`Failed to download Syncthing: ${error.message}`);
-        }
-    }
 
-    async extractZip(archivePath, extractDir, folderName) {
-        const fs = require('fs');
-        const AdmZip = require('adm-zip');
-        
-        try {
-            const zip = new AdmZip(archivePath);
-            zip.extractAllTo(extractDir, true);
-            
-            const executablePath = path.join(extractDir, folderName, 'syncthing.exe');
-            
-            // Make executable
-            fs.chmodSync(executablePath, 0o755);
-            
-            return executablePath;
-        } catch (error) {
-            // Fallback: manual extraction using built-in modules
-            const executablePath = path.join(extractDir, 'syncthing.exe');
-            
-            // For now, return the expected path - user may need to extract manually
-            console.warn('Automatic extraction failed, please extract manually:', error);
-            return executablePath;
-        }
-    }
-
-    async extractTarGz(archivePath, extractDir, folderName) {
-        const fs = require('fs');
-        const { exec } = require('child_process');
-        
-        return new Promise((resolve, reject) => {
-            const command = `tar -xzf "${archivePath}" -C "${extractDir}"`;
-            exec(command, (error) => {
-                if (error) {
-                    reject(error);
-                    return;
-                }
-                
-                const executablePath = path.join(extractDir, folderName, 'syncthing');
-                
-                // Make executable
-                fs.chmodSync(executablePath, 0o755);
-                
-                resolve(executablePath);
-            });
-        });
-        
-        console.log('Syncthing not found in any standard locations');
-        
-        return null;
-    }
 
     async analyzeDesktopShortcuts() {
         console.log('Analyzing desktop shortcuts...');
@@ -831,6 +730,47 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         await this.killExistingSyncthingProcesses();
     }
 
+    async checkSyncthingRunning() {
+        // Try multiple common ports
+        const portsToTry = [this.settings.port, 8384, 8080, 22000];
+        
+        for (const port of portsToTry) {
+            try {
+                console.log(`Checking if Syncthing is running on port ${port}...`);
+                
+                // Use a simpler approach - just try to connect to the port
+                const { exec } = require('child_process');
+                const isPortOpen = await new Promise((resolve) => {
+                    if (process.platform === 'win32') {
+                        exec(`netstat -an | findstr :${port}`, (error, stdout) => {
+                            resolve(stdout.includes(`:${port}`));
+                        });
+                    } else {
+                        exec(`lsof -i :${port}`, (error, stdout) => {
+                            resolve(stdout.includes('syncthing') || stdout.includes(`:${port}`));
+                        });
+                    }
+                });
+                
+                if (isPortOpen) {
+                    console.log(`Syncthing detected running on port ${port}`);
+                    // Update settings if we found it on a different port
+                    if (port !== this.settings.port) {
+                        this.settings.port = port;
+                        await this.saveSettings();
+                    }
+                    return true;
+                }
+            } catch (error) {
+                console.log(`Port ${port} check failed: ${error.message}`);
+                continue;
+            }
+        }
+        
+        console.log('Syncthing not detected on any common ports');
+        return false;
+    }
+
     async killExistingSyncthingProcesses() {
         const { exec } = require('child_process');
         
@@ -854,6 +794,21 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
     }
 
     async startSyncthing() {
+        // First check if Syncthing is already running externally
+        const isRunning = await this.checkSyncthingRunning();
+        if (isRunning) {
+            console.log('Syncthing detected running externally');
+            this.syncthingProcess = { external: true }; // Mark as externally managed
+            this.updateStatusBar('Running (External)');
+            if (this.settings.showNotifications) {
+                new Notice('Connected to running Syncthing instance');
+            }
+            return;
+        }
+        
+        // If not running externally, try to detect and start our own instance
+        console.log('Syncthing not detected running, attempting to start...');
+
         if (this.syncthingProcess) {
             if (this.settings.showNotifications) {
                 new Notice('Syncthing is already running');
@@ -862,7 +817,21 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         }
 
         try {
-            const syncthingPath = await this.findSyncthingPath();
+            let syncthingPath = await this.detectSyncthingPath();
+            
+            if (!syncthingPath) {
+                const installMsg = `Syncthing not found. Please install and start Syncthing:
+                
+1. Download from: https://syncthing.net/downloads/
+2. Install Syncthing on your system
+3. Start Syncthing (it should be running before using this plugin)
+4. Set manual path in plugin settings if needed`;
+                
+                new Notice('Syncthing not found - check console for installation instructions', 8000);
+                console.error(installMsg);
+                throw new Error('Syncthing executable not found. Syncthing must be installed and running separately.');
+            }
+            
             const syncthingHome = path.join(this.app.vault.adapter.basePath, '.syncthing-obsidian');
             
             // Create syncthing home directory
@@ -871,7 +840,7 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                 fs.mkdirSync(syncthingHome, { recursive: true });
             }
 
-            // Check for and remove lock files from previous instances
+            // Clean up any lock files only if we're starting our own instance
             await this.cleanupLockFiles(syncthingHome);
 
             const availablePort = await this.findAvailablePort(this.settings.port);

@@ -3,7 +3,7 @@
   "name": "SyncthingSync",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "Desktop-only Syncthing integration for Obsidian vault synchronization without running Syncthing separately",
+  "description": "Desktop-only Syncthing management interface within your vault for vault synchronization",
   "author": "Erin Skidds",
   "authorUrl": "https://github.com/DudeThatsErin",
   "fundingUrl": "https://buymeacoffee.com/erinskidds",
