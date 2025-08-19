@@ -14,6 +14,9 @@ const DEFAULT_SETTINGS = {
     deviceName: 'Obsidian',
     syncInterval: 300, // 5 minutes
     showNotifications: true,
+    apiKey: 'obsidian-syncthing-key',
+    useExistingInstance: false,
+    autoDownload: true,
 };
 
 class SyncthingSyncSettingTab extends PluginSettingTab {
@@ -464,79 +467,157 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
     async detectSyncthingPath() {
         console.log('Starting Syncthing detection...');
         
-        // First try PATH lookup
-        const pathResult = await this.findInPath();
-        if (pathResult) {
-            console.log(`Found Syncthing in PATH: ${pathResult}`);
-            return pathResult;
+        throw new Error('Syncthing executable not found. Please enable auto-download in settings or install Syncthing manually.');
+    }
+
+    getBundledSyncthingPath() {
+        const platform = process.platform;
+        const arch = process.arch;
+        const pluginDir = path.dirname(__filename);
+        
+        let execName = 'syncthing';
+        if (platform === 'win32') {
+            execName = 'syncthing.exe';
         }
         
-        const paths = [
-            // Windows paths - prioritize the actual location we know works
-            'C:\\Users\\erins\\AppData\\Local\\Programs\\Syncthing\\syncthing.exe',
-            'C:\\Users\\' + (process.env.USERNAME || 'User') + '\\AppData\\Local\\Programs\\Syncthing\\syncthing.exe',
-            'C:\\Program Files\\Syncthing\\syncthing.exe',
-            'C:\\Program Files (x86)\\Syncthing\\syncthing.exe',
-            'C:\\Syncthing\\syncthing.exe',
-            'C:\\Users\\' + (process.env.USERNAME || 'User') + '\\AppData\\Local\\Syncthing\\syncthing.exe',
-            'C:\\Users\\' + (process.env.USERNAME || 'User') + '\\AppData\\Roaming\\Syncthing\\syncthing.exe',
-            
-            // Package manager paths (Windows)
-            'C:\\ProgramData\\chocolatey\\bin\\syncthing.exe',
-            'C:\\Users\\' + (process.env.USERNAME || 'User') + '\\scoop\\apps\\syncthing\\current\\syncthing.exe',
-            
-            // Portable installation paths
-            'C:\\portable\\syncthing\\syncthing.exe',
-            'D:\\portable\\syncthing\\syncthing.exe',
-            'E:\\portable\\syncthing\\syncthing.exe',
-            
-            // Unix/macOS paths
-            '/usr/bin/syncthing',
-            '/usr/local/bin/syncthing',
-            '/opt/syncthing/syncthing',
-            '/Applications/Syncthing.app/Contents/MacOS/syncthing',
-            process.env.HOME + '/bin/syncthing',
-            process.env.HOME + '/.local/bin/syncthing'
-        ];
+        const bundledPath = path.join(pluginDir, 'bin', `${platform}-${arch}`, execName);
+        return bundledPath;
+    }
+
+    async downloadSyncthing() {
+        const platform = process.platform;
+        const arch = process.arch;
         
-        // Try each path
-        for (const path of paths) {
-            console.log(`Checking path: ${path}`);
+        // Map Node.js arch to Syncthing arch names
+        const archMap = {
+            'x64': 'amd64',
+            'arm64': 'arm64',
+            'ia32': '386'
+        };
+        
+        const syncthingArch = archMap[arch];
+        if (!syncthingArch) {
+            throw new Error(`Unsupported architecture: ${arch}`);
+        }
+        
+        // Map platform names
+        const platformMap = {
+            'win32': 'windows',
+            'darwin': 'darwin',
+            'linux': 'linux'
+        };
+        
+        const syncthingPlatform = platformMap[platform];
+        if (!syncthingPlatform) {
+            throw new Error(`Unsupported platform: ${platform}`);
+        }
+        
+        const version = 'v1.27.12'; // Latest stable version
+        const fileName = `syncthing-${syncthingPlatform}-${syncthingArch}-${version}`;
+        const archiveExt = platform === 'win32' ? 'zip' : 'tar.gz';
+        const downloadUrl = `https://github.com/syncthing/syncthing/releases/download/${version}/${fileName}.${archiveExt}`;
+        
+        const pluginDir = path.dirname(__filename);
+        const binDir = path.join(pluginDir, 'bin', `${platform}-${arch}`);
+        const archivePath = path.join(binDir, `${fileName}.${archiveExt}`);
+        
+        // Create directories
+        const fs = require('fs');
+        if (!fs.existsSync(binDir)) {
+            fs.mkdirSync(binDir, { recursive: true });
+        }
+        
+        if (this.settings.showNotifications) {
+            new Notice('Downloading Syncthing...');
+        }
+        
+        try {
+            // Download the archive
+            const https = require('https');
+            const response = await new Promise((resolve, reject) => {
+                https.get(downloadUrl, resolve).on('error', reject);
+            });
             
-            try {
-                if (await this.verifyExecutable(path)) {
-                    console.log(`Found Syncthing at: ${path}`);
-                    return path;
+            if (response.statusCode !== 200) {
+                throw new Error(`Download failed: ${response.statusCode}`);
+            }
+            
+            // Save to file
+            const writeStream = fs.createWriteStream(archivePath);
+            response.pipe(writeStream);
+            
+            await new Promise((resolve, reject) => {
+                writeStream.on('finish', resolve);
+                writeStream.on('error', reject);
+            });
+            
+            // Extract the archive
+            let executablePath;
+            if (platform === 'win32') {
+                executablePath = await this.extractZip(archivePath, binDir, fileName);
+            } else {
+                executablePath = await this.extractTarGz(archivePath, binDir, fileName);
+            }
+            
+            // Clean up archive
+            fs.unlinkSync(archivePath);
+            
+            if (this.settings.showNotifications) {
+                new Notice('Syncthing downloaded successfully');
+            }
+            
+            return executablePath;
+            
+        } catch (error) {
+            console.error('Download failed:', error);
+            throw new Error(`Failed to download Syncthing: ${error.message}`);
+        }
+    }
+
+    async extractZip(archivePath, extractDir, folderName) {
+        const fs = require('fs');
+        const AdmZip = require('adm-zip');
+        
+        try {
+            const zip = new AdmZip(archivePath);
+            zip.extractAllTo(extractDir, true);
+            
+            const executablePath = path.join(extractDir, folderName, 'syncthing.exe');
+            
+            // Make executable
+            fs.chmodSync(executablePath, 0o755);
+            
+            return executablePath;
+        } catch (error) {
+            // Fallback: manual extraction using built-in modules
+            const executablePath = path.join(extractDir, 'syncthing.exe');
+            
+            // For now, return the expected path - user may need to extract manually
+            console.warn('Automatic extraction failed, please extract manually:', error);
+            return executablePath;
+        }
+    }
+
+    async extractTarGz(archivePath, extractDir, folderName) {
+        const fs = require('fs');
+        const { exec } = require('child_process');
+        
+        return new Promise((resolve, reject) => {
+            const command = `tar -xzf "${archivePath}" -C "${extractDir}"`;
+            exec(command, (error) => {
+                if (error) {
+                    reject(error);
+                    return;
                 }
-            } catch (error) {
-                console.log(`Path ${path} failed: ${error.message}`);
-            }
-        }
-        
-        // Try registry search on Windows
-        if (process.platform === 'win32') {
-            const registryPath = await this.searchWindowsRegistry();
-            if (registryPath) {
-                console.log(`Found Syncthing via registry: ${registryPath}`);
-                return registryPath;
-            }
-        }
-        
-        // Try desktop shortcut analysis on Windows
-        if (process.platform === 'win32') {
-            const shortcutPath = await this.analyzeDesktopShortcuts();
-            if (shortcutPath) {
-                console.log(`Found Syncthing via desktop shortcut: ${shortcutPath}`);
-                return shortcutPath;
-            }
-        }
-        
-        // Try directory scanning
-        const scannedPath = await this.scanDirectories();
-        if (scannedPath) {
-            console.log(`Found Syncthing via directory scan: ${scannedPath}`);
-            return scannedPath;
-        }
+                
+                const executablePath = path.join(extractDir, folderName, 'syncthing');
+                
+                // Make executable
+                fs.chmodSync(executablePath, 0o755);
+                
+                resolve(executablePath);
+            });
+        });
         
         console.log('Syncthing not found in any standard locations');
         
@@ -726,6 +807,52 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         return this.settings.manualPath || this.settings.syncthingPath;
     }
 
+    async cleanupLockFiles(syncthingHome) {
+        const fs = require('fs');
+        const lockFiles = [
+            path.join(syncthingHome, 'index-v0.14.0.db', 'LOCK'),
+            path.join(syncthingHome, 'index', 'LOCK'),
+            path.join(syncthingHome, 'csrftokens.txt'),
+            path.join(syncthingHome, 'syncthing.log.lck')
+        ];
+
+        for (const lockFile of lockFiles) {
+            try {
+                if (fs.existsSync(lockFile)) {
+                    fs.unlinkSync(lockFile);
+                    console.log(`Removed lock file: ${lockFile}`);
+                }
+            } catch (error) {
+                console.warn(`Failed to remove lock file ${lockFile}:`, error.message);
+            }
+        }
+
+        // Kill any existing Syncthing processes
+        await this.killExistingSyncthingProcesses();
+    }
+
+    async killExistingSyncthingProcesses() {
+        const { exec } = require('child_process');
+        
+        return new Promise((resolve) => {
+            if (process.platform === 'win32') {
+                exec('taskkill /F /IM syncthing.exe', (error) => {
+                    if (error && !error.message.includes('not found')) {
+                        console.warn('Failed to kill existing syncthing processes:', error.message);
+                    }
+                    resolve();
+                });
+            } else {
+                exec('pkill -f syncthing', (error) => {
+                    if (error && !error.message.includes('No such process')) {
+                        console.warn('Failed to kill existing syncthing processes:', error.message);
+                    }
+                    resolve();
+                });
+            }
+        });
+    }
+
     async startSyncthing() {
         if (this.syncthingProcess) {
             if (this.settings.showNotifications) {
@@ -734,26 +861,20 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
             return;
         }
 
-        const syncthingPath = this.getSyncthingPath() || await this.detectSyncthingPath();
-        
-        if (!syncthingPath) {
-            new Notice('Syncthing executable not found. Please install Syncthing or configure the path in settings.');
-            return;
-        }
-
         try {
-            const os = require('os');
-            const syncthingHome = path.join(os.homedir(), '.syncthing-obsidian');
+            const syncthingPath = await this.findSyncthingPath();
+            const syncthingHome = path.join(this.app.vault.adapter.basePath, '.syncthing-obsidian');
             
-            // Ensure syncthing home directory exists
+            // Create syncthing home directory
             const fs = require('fs');
             if (!fs.existsSync(syncthingHome)) {
                 fs.mkdirSync(syncthingHome, { recursive: true });
             }
-            
-            // Find available port
+
+            // Check for and remove lock files from previous instances
+            await this.cleanupLockFiles(syncthingHome);
+
             const availablePort = await this.findAvailablePort(this.settings.port);
-            
             const args = [
                 '--home', syncthingHome,
                 '--gui-address', `127.0.0.1:${availablePort}`,
