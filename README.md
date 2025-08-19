@@ -13,6 +13,12 @@ A desktop-only Obsidian plugin that provides a convenient interface to manage an
 - **Status Bar Indicator**: Shows Syncthing running/stopped status in Obsidian's status bar
 - **Notifications**: Optional status notifications
 
+## Support
+
+- 💬 [Discord Support](https://discord.gg/zgkMsNcBPT) - Fastest support
+- 🐛 [Report Issues](https://github.com/DudeThatsErin/SyncthingSync/issues)
+- ☕ [Buy Me a Coffee](https://buymeacoffee.com/erinskidds)
+
 ## Installation
 
 ### Via BRAT (Recommended)
@@ -111,23 +117,3 @@ A desktop-only Obsidian plugin that provides a convenient interface to manage an
 - Adjust sync interval based on vault size
 - Disable notifications for large vaults
 - Use web UI for advanced configuration
-
-## Support
-
-- 💬 [Discord Support](https://discord.gg/your-discord-server) - Fastest support
-- 🐛 [Report Issues](https://github.com/DudeThatsErin/SyncthingSync/issues)
-- ⭐ [Star on GitHub](https://github.com/DudeThatsErin/SyncthingSync)
-- ☕ [Buy Me a Coffee](https://buymeacoffee.com/erinskidds)
-
-## License
-
-MIT License - see LICENSE file for details.
-
-## Changelog
-
-### v1.0.0
-- Initial release
-- Desktop-only Syncthing integration
-- Auto-detection and configuration
-- Web UI access and status monitoring
-- Configurable sync intervals and notifications
