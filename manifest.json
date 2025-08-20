@@ -1,7 +1,7 @@
 {
   "id": "syncthing-sync",
   "name": "SyncthingSync",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "0.15.0",
   "description": "Desktop-only Syncthing management interface within your vault for vault synchronization",
   "author": "Erin Skidds",
