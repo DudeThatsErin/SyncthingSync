@@ -19,7 +19,7 @@ A desktop-only Obsidian plugin that provides a convenient interface to manage an
 
 ## Support
 
-- 💬 [Discord Support](https://discord.gg/zgkMsNcBPT) - Fastest support
+- 💬 [Discord Support](https://discord.gg/XcJWhE3SEA) - Fastest support
 - 🐛 [Report Issues](https://github.com/DudeThatsErin/SyncthingSync/issues)
 - ☕ [Buy Me a Coffee](https://buymeacoffee.com/erinskidds)
 

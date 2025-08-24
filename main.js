@@ -10,13 +10,178 @@ const DEFAULT_SETTINGS = {
     syncthingPath: '',
     manualPath: '',
     port: 8384,
-    deviceName: 'Obsidian',
-    syncInterval: 300,
-    autoStart: false,
     showNotifications: true,
     apiKey: 'obsidian-syncthing-key',
     useExistingInstance: false,
 };
+
+class SyncthingSettingsModal extends Modal {
+    constructor(app, plugin) {
+        super(app);
+        this.plugin = plugin;
+    }
+
+    async onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl('h2', { text: 'SyncthingSync Settings' });
+        
+        // Status Display Section
+        const statusSection = contentEl.createDiv({ cls: 'syncthing-status-section' });
+        statusSection.createEl('h3', { text: 'Current Status' });
+        
+        const statusContainer = statusSection.createDiv({ cls: 'status-container' });
+        
+        // Check actual running status
+        const isActuallyRunning = await this.plugin.checkSyncthingRunning();
+        
+        // Update plugin state based on actual running status
+        if (isActuallyRunning && !this.plugin.syncthingProcess) {
+            this.plugin.syncthingProcess = { running: true };
+        } else if (!isActuallyRunning && this.plugin.syncthingProcess) {
+            this.plugin.syncthingProcess = null;
+        }
+        
+        // Determine status
+        let statusText = 'Stopped';
+        let statusClass = 'status-stopped';
+        let statusIcon = '⏸️';
+        
+        if (this.plugin.syncthingProcess) {
+            statusText = 'Running';
+            statusClass = 'status-running';
+            statusIcon = '▶️';
+        }
+        
+        const statusDisplay = statusContainer.createDiv({ cls: 'status-display' });
+        statusDisplay.createEl('span', { text: statusIcon, cls: 'status-icon' });
+        statusDisplay.createEl('span', { text: statusText, cls: `status-text ${statusClass}` });
+        
+        // Connection info if running
+        if (this.plugin.syncthingProcess) {
+            const connectionInfo = statusContainer.createDiv({ cls: 'connection-info' });
+            connectionInfo.createEl('p', { text: `Port: ${this.plugin.settings.port}` });
+            connectionInfo.createEl('p', { text: `URL: http://localhost:${this.plugin.settings.port}` });
+        }
+
+        // Syncthing Installation section
+        contentEl.createEl('h3', { text: 'Syncthing Installation' });
+        
+        new Setting(contentEl)
+            .setName('Download syncthing')
+            .setDesc('Download Syncthing from syncthing.net/downloads and install it')
+            .addButton(button => button
+                .setButtonText('Open download page')
+                .onClick(() => {
+                    require('electron').shell.openExternal('https://syncthing.net/downloads/');
+                }));
+
+        // Auto-detected Path section
+        contentEl.createEl('h3', { text: 'Auto-detected Path' });
+        
+        new Setting(contentEl)
+            .setName('Automatically detected Syncthing path')
+            .setDesc('Automatically detected Syncthing path (read-only)')
+            .addText(text => {
+                text.setValue(this.plugin.settings.syncthingPath || 'Not detected');
+                text.inputEl.disabled = true;
+            })
+            .addButton(button => button
+                .setButtonText('Detect Now')
+                .onClick(async () => {
+                    const detectedPath = await this.plugin.detectSyncthingPath();
+                    if (detectedPath) {
+                        this.plugin.settings.syncthingPath = detectedPath;
+                        await this.plugin.saveSettings();
+                        new Notice(`Detected Syncthing at: ${detectedPath}`);
+                        this.onOpen(); // Refresh modal
+                    } else {
+                        new Notice('Syncthing not found in common locations');
+                    }
+                }));
+
+        // Manual Path section
+        contentEl.createEl('h3', { text: 'Manual Syncthing Path' });
+        
+        new Setting(contentEl)
+            .setName('Manual syncthing path')
+            .setDesc('Manually specify Syncthing executable path (overrides auto-detection)')
+            .addTextArea(text => {
+                text.setValue(this.plugin.settings.manualPath);
+                text.onChange(async (value) => {
+                    this.plugin.settings.manualPath = value.trim();
+                    await this.plugin.saveSettings();
+                });
+                text.inputEl.className = 'manual-path-input';
+            })
+            .addButton(button => button
+                .setButtonText('Clear')
+                .onClick(async () => {
+                    this.plugin.settings.manualPath = '';
+                    await this.plugin.saveSettings();
+                    this.onOpen(); // Refresh modal
+                }));
+
+        // Port setting
+        new Setting(contentEl)
+            .setName('Syncthing port')
+            .setDesc('Port for syncthing web UI (default: 8384)')
+            .addText(text => text
+                .setPlaceholder('8384')
+                .setValue(this.plugin.settings.port.toString())
+                .onChange(async (value) => {
+                    const port = parseInt(value) || 8384;
+                    this.plugin.settings.port = port;
+                    await this.plugin.saveSettings();
+                }));
+
+        // Notifications setting
+        new Setting(contentEl)
+            .setName('Show notifications')
+            .setDesc('Show sync status notifications')
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.showNotifications)
+                .onChange(async (value) => {
+                    this.plugin.settings.showNotifications = value;
+                    await this.plugin.saveSettings();
+                }));
+
+        // Control buttons
+        contentEl.createEl('h3', { text: 'Controls' });
+        
+        const buttonContainer = contentEl.createDiv();
+        buttonContainer.className = 'modal-button-container';
+        
+        buttonContainer.createEl('button', { text: 'Start Syncthing' })
+            .addEventListener('click', () => {
+                this.plugin.startSyncthing();
+                this.close();
+            });
+            
+        buttonContainer.createEl('button', { text: 'Stop Syncthing' })
+            .addEventListener('click', () => {
+                this.plugin.stopSyncthing();
+                this.close();
+            });
+
+        const getSupportBtn = buttonContainer.createEl('button', { text: 'Get Support' });
+        getSupportBtn.addEventListener('click', () => {
+            window.open('https://discord.gg/XcJWhE3SEA', '_blank');
+            this.close();
+        });
+            
+        const openWebUIBtn = buttonContainer.createEl('button', { text: 'Open Web UI' });
+        openWebUIBtn.addEventListener('click', () => {
+            window.open(`http://localhost:${this.plugin.settings.port}`, '_blank');
+            this.close();
+        });
+    }
+
+    onClose() {
+        const { contentEl } = this;
+        contentEl.empty();
+    }
+}
 
 class SyncthingSyncSettingTab extends PluginSettingTab {
     constructor(app, plugin) {
@@ -33,75 +198,123 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
          // Support & Links Section
          this.createAccordionSection(containerEl, 'Support & Links', () => {
             const supportContainer = containerEl.createDiv();
-            supportContainer.style.cssText = 'display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0;';
+            supportContainer.className = 'support-container';
             
             const buyMeACoffeeBtn = supportContainer.createEl('a', { 
                 text: '☕ Buy Me a Coffee',
                 href: 'https://buymeacoffee.com/erinskidds'
             });
-            buyMeACoffeeBtn.style.cssText = 'background: #FFDD00; color: #000; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 12px;';
+            buyMeACoffeeBtn.className = 'support-link coffee-link';
             
             const githubBtn = supportContainer.createEl('a', { 
                 text: '⭐ Star on GitHub',
-                href: 'https://github.com/DudeThatsErin/FileCreator'
+                href: 'https://github.com/DudeThatsErin/SyncthingSync'
             });
-            githubBtn.style.cssText = 'background: #24292e; color: #fff; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 12px;';
+            githubBtn.className = 'support-link github-link';
             
             const issuesBtn = supportContainer.createEl('a', { 
                 text: '🐛 Report Issues',
-                href: 'https://github.com/DudeThatsErin/FileCreator/issues'
+                href: 'https://github.com/DudeThatsErin/SyncthingSync/issues'
             });
-            issuesBtn.style.cssText = 'background: #d73a49; color: #fff; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 12px;';
+            issuesBtn.className = 'support-link issues-link';
             
             const discordBtn = supportContainer.createEl('a', { 
                 text: '💬 Discord Support',
-                href: 'https://discord.gg/your-discord-server'
+                href: 'https://discord.gg/zgkMsNcBPT'
             });
-            discordBtn.style.cssText = 'background: #5865F2; color: #fff; padding: 8px 12px; border-radius: 4px; text-decoration: none; font-size: 12px;';
+            discordBtn.className = 'support-link discord-link';
         });
 
         // Status section
         this.createAccordionSection(containerEl, 'Status & Controls', () => {
+            // Main status display
             const statusDiv = containerEl.createDiv({ cls: 'setting-item' });
-            statusDiv.createEl('div', { cls: 'setting-item-info' }).createEl('div', { cls: 'setting-item-name', text: 'Syncthing Status' });
+            statusDiv.createEl('div', { cls: 'setting-item-info' }).createEl('div', { cls: 'setting-item-name', text: 'Syncthing status' });
             const statusControls = statusDiv.createEl('div', { cls: 'setting-item-control' });
             
-            const statusText = statusControls.createEl('span', { 
-                text: this.plugin.syncthingProcess ? 'Running' : 'Stopped',
-                cls: this.plugin.syncthingProcess ? 'status-running' : 'status-stopped'
+            // Determine detailed status
+            let statusText = 'Stopped';
+            let statusClass = 'status-stopped';
+            let statusIcon = '⏸️';
+            
+            if (this.plugin.syncthingProcess) {
+                statusText = 'Running';
+                statusClass = 'status-running';
+                statusIcon = '▶️';
+            }
+            
+            const statusDisplay = statusControls.createEl('div', { cls: 'syncthing-status-display' });
+            statusDisplay.createEl('span', { text: statusIcon, cls: 'status-icon' });
+            statusDisplay.createEl('span', { text: statusText, cls: statusClass });
+            
+            // Port and connection info
+            if (this.plugin.syncthingProcess) {
+                const connectionInfo = containerEl.createDiv({ cls: 'setting-item' });
+                connectionInfo.createEl('div', { cls: 'setting-item-info' }).createEl('div', { cls: 'setting-item-name', text: 'Connection details' });
+                const connectionControls = connectionInfo.createEl('div', { cls: 'setting-item-control' });
+                
+                const portInfo = connectionControls.createEl('div', { cls: 'connection-details' });
+                portInfo.createEl('p', { text: `Port: ${this.plugin.settings.port}`, cls: 'connection-detail' });
+                portInfo.createEl('p', { text: `URL: http://localhost:${this.plugin.settings.port}`, cls: 'connection-detail' });
+            }
+            
+            // Control buttons
+            const controlButtons = containerEl.createDiv({ cls: 'setting-item' });
+            controlButtons.createEl('div', { cls: 'setting-item-info' }).createEl('div', { cls: 'setting-item-name', text: 'Controls' });
+            const buttonControls = controlButtons.createEl('div', { cls: 'setting-item-control syncthing-controls' });
+            
+            // Start/Stop button
+            const startStopBtn = buttonControls.createEl('button', { 
+                text: this.plugin.syncthingProcess ? 'Stop Syncthing' : 'Start Syncthing',
+                cls: this.plugin.syncthingProcess ? 'mod-warning' : 'mod-cta'
+            });
+            startStopBtn.addEventListener('click', async () => {
+                if (this.plugin.syncthingProcess) {
+                    await this.plugin.stopSyncthing();
+                } else {
+                    await this.plugin.startSyncthing();
+                }
+                setTimeout(() => this.display(), 1500);
             });
             
-            statusControls.createEl('button', { 
-                text: this.plugin.syncthingProcess ? 'Stop' : 'Start',
-                cls: 'mod-cta'
-            }).addEventListener('click', () => {
-                if (this.plugin.syncthingProcess) {
-                    this.plugin.stopSyncthing();
-                } else {
-                    this.plugin.startSyncthing();
+            // Refresh status button
+            const refreshBtn = buttonControls.createEl('button', { 
+                text: 'Refresh Status',
+                cls: 'mod-secondary'
+            });
+            refreshBtn.addEventListener('click', async () => {
+                const isRunning = await this.plugin.checkSyncthingRunning();
+                if (isRunning && !this.plugin.syncthingProcess) {
+                    this.plugin.syncthingProcess = { running: true };
                 }
-                setTimeout(() => this.display(), 1000);
+                this.display();
             });
 
-            if (this.plugin.settings.webUIEnabled && this.plugin.syncthingProcess) {
-                statusControls.createEl('button', { 
-                    text: 'Open Web UI',
-                    cls: 'mod-secondary'
-                }).addEventListener('click', () => {
-                    require('electron').shell.openExternal(`http://localhost:${this.plugin.settings.port}`);
-                });
+            // Web UI button - always show when Syncthing is detected as running
+            const webUIBtn = buttonControls.createEl('button', { 
+                text: 'Open Web UI',
+                cls: 'mod-secondary'
+            });
+            webUIBtn.addEventListener('click', () => {
+                window.open(`http://localhost:${this.plugin.settings.port}`, '_blank');
+            });
+            
+            // Disable button if Syncthing is not running
+            if (!this.plugin.syncthingProcess) {
+                webUIBtn.disabled = true;
+                webUIBtn.style.opacity = '0.5';
             }
         });
 
         this.createAccordionSection(containerEl, 'Settings', () => {
             // Installation instructions
             new Setting(containerEl)
-                .setName('Syncthing Installation')
+                .setName('Syncthing installation')
                 .setDesc('Download Syncthing from syncthing.net/downloads and install it')
                 .addButton(button => button
-                    .setButtonText('Open Download Page')
+                    .setButtonText('Open download page')
                     .onClick(() => {
-                        require('electron').shell.openExternal('https://syncthing.net/downloads/');
+                        window.open('https://syncthing.net/downloads/', '_blank');
                     }));
 
             // Syncthing executable path
@@ -128,7 +341,7 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
                     }));
 
             new Setting(containerEl)
-                .setName('Manual Syncthing Path')
+                .setName('Manual syncthing path')
                 .setDesc('Manually specify Syncthing executable path (overrides auto-detection)')
                 .addTextArea(text => {
                     text.setPlaceholder('C:\\Users\\erins\\AppData\\Local\\Programs\\Syncthing\\syncthing.exe')
@@ -137,10 +350,7 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
                             this.plugin.settings.manualPath = value.trim();
                             await this.plugin.saveSettings();
                         });
-                    text.inputEl.style.minHeight = '60px';
-                    text.inputEl.style.resize = 'vertical';
-                    text.inputEl.style.fontFamily = 'monospace';
-                    text.inputEl.style.fontSize = '12px';
+                    text.inputEl.className = 'manual-path-input';
                 })
                 .addButton(button => button
                     .setButtonText('Clear')
@@ -152,18 +362,9 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
 
 
 
-            new Setting(containerEl)
-                .setName('Auto-start Syncthing')
-                .setDesc('Automatically start Syncthing when Obsidian opens')
-                .addToggle(toggle => toggle
-                    .setValue(this.plugin.settings.autoStart)
-                    .onChange(async (value) => {
-                        this.plugin.settings.autoStart = value;
-                        await this.plugin.saveSettings();
-                    }));
 
             new Setting(containerEl)
-                .setName('Syncthing Port')
+                .setName('Syncthing port')
                 .setDesc('Port for Syncthing web UI (default: 8384)')
                 .addText(text => text
                     .setPlaceholder('8384')
@@ -175,40 +376,7 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
                     }));
 
             new Setting(containerEl)
-                .setName('Enable Web UI')
-                .setDesc('Enable Syncthing web interface access')
-                .addToggle(toggle => toggle
-                    .setValue(this.plugin.settings.webUIEnabled)
-                    .onChange(async (value) => {
-                        this.plugin.settings.webUIEnabled = value;
-                        await this.plugin.saveSettings();
-                    }));
-
-            new Setting(containerEl)
-                .setName('Device Name')
-                .setDesc('Name for this device in Syncthing')
-                .addText(text => text
-                    .setValue(this.plugin.settings.deviceName)
-                    .onChange(async (value) => {
-                        this.plugin.settings.deviceName = value.trim();
-                        await this.plugin.saveSettings();
-                    }));
-
-            new Setting(containerEl)
-                .setName('Sync Interval')
-                .setDesc('Automatic sync interval in seconds (0 to disable)')
-                .addText(text => text
-                    .setPlaceholder('300')
-                    .setValue(this.plugin.settings.syncInterval.toString())
-                    .onChange(async (value) => {
-                        const interval = parseInt(value) || 0;
-                        this.plugin.settings.syncInterval = interval;
-                        await this.plugin.saveSettings();
-                        this.plugin.setupSyncInterval();
-                    }));
-
-            new Setting(containerEl)
-                .setName('Show Notifications')
+                .setName('Show notifications')
                 .setDesc('Show sync status notifications')
                 .addToggle(toggle => toggle
                     .setValue(this.plugin.settings.showNotifications)
@@ -216,50 +384,24 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
                         this.plugin.settings.showNotifications = value;
                         await this.plugin.saveSettings();
                     }));
-            });
-
+        });
     }
 
     createAccordionSection(containerEl, title, contentCallback) {
         const accordionContainer = containerEl.createDiv('accordion-section');
         
         const header = accordionContainer.createDiv('accordion-header');
-        header.style.cssText = `
-            cursor: pointer;
-            padding: 12px 16px;
-            background: var(--background-modifier-border);
-            border: 1px solid var(--background-modifier-border);
-            border-radius: 6px;
-            margin: 16px 0 8px 0;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            font-weight: 600;
-            transition: background-color 0.2s ease;
-        `;
+        header.className = 'accordion-header';
         
         const headerText = header.createSpan();
         headerText.textContent = title;
         
         const arrow = header.createSpan('accordion-arrow');
         arrow.textContent = '▼';
-        arrow.style.cssText = `
-            transition: transform 0.2s ease;
-            font-size: 12px;
-        `;
+        arrow.className = 'accordion-arrow';
         
         const content = accordionContainer.createDiv('accordion-content');
-        content.style.cssText = `
-            border-left: 1px solid var(--background-modifier-border);
-            border-right: 1px solid var(--background-modifier-border);
-            border-bottom: 1px solid var(--background-modifier-border);
-            border-radius: 0 0 6px 6px;
-            margin-bottom: 16px;
-            padding: 16px;
-            max-height: 1000px;
-            overflow: hidden;
-            transition: max-height 0.3s ease, padding 0.3s ease;
-        `;
+        content.className = 'accordion-content';
         
         let isExpanded = true; // Start expanded
         
@@ -267,28 +409,25 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
             isExpanded = !isExpanded;
             
             if (isExpanded) {
-                content.style.maxHeight = '1000px';
-                content.style.padding = '16px';
-                arrow.style.transform = 'rotate(0deg)';
-                header.style.borderRadius = '6px 6px 0 0';
+                content.classList.add('expanded');
+                content.classList.remove('collapsed');
+                arrow.classList.add('expanded');
+                arrow.classList.remove('collapsed');
+                header.classList.add('expanded');
+                header.classList.remove('collapsed');
             } else {
-                content.style.maxHeight = '0';
-                content.style.padding = '0 16px';
-                arrow.style.transform = 'rotate(-90deg)';
-                header.style.borderRadius = '6px';
+                content.classList.add('collapsed');
+                content.classList.remove('expanded');
+                arrow.classList.add('collapsed');
+                arrow.classList.remove('expanded');
+                header.classList.add('collapsed');
+                header.classList.remove('expanded');
             }
         };
         
         header.addEventListener('click', toggleAccordion);
         
-        // Add hover effect
-        header.addEventListener('mouseenter', () => {
-            header.style.backgroundColor = 'var(--background-modifier-hover)';
-        });
-        
-        header.addEventListener('mouseleave', () => {
-            header.style.backgroundColor = 'var(--background-modifier-border)';
-        });
+        // Hover effects are now handled by CSS
         
         // Call the content callback to populate the accordion
         const tempContainer = containerEl.createDiv();
@@ -314,68 +453,18 @@ class SyncthingSyncSettingTab extends PluginSettingTab {
 
 }
 
-class SyncStatusModal extends Modal {
-    constructor(app, plugin) {
-        super(app);
-        this.plugin = plugin;
-    }
-
-    onOpen() {
-        const { contentEl } = this;
-        contentEl.empty();
-        contentEl.createEl('h2', { text: 'Syncthing Status' });
-
-        this.statusContainer = contentEl.createDiv();
-        this.updateStatus();
-
-        // Refresh button
-        contentEl.createEl('button', { text: 'Refresh' })
-            .addEventListener('click', () => this.updateStatus());
-    }
-
-    async updateStatus() {
-        this.statusContainer.empty();
-        
-        if (!this.plugin.syncthingProcess) {
-            this.statusContainer.createEl('p', { text: 'Syncthing is not running' });
-            return;
-        }
-
-        try {
-            const status = await this.plugin.getSyncthingStatus();
-            
-            this.statusContainer.createEl('h3', { text: 'System Status' });
-            this.statusContainer.createEl('p', { text: `Version: ${status.version || 'Unknown'}` });
-            this.statusContainer.createEl('p', { text: `Uptime: ${status.uptime || 'Unknown'}` });
-            
-            if (status.folders && status.folders.length > 0) {
-                this.statusContainer.createEl('h3', { text: 'Folders' });
-                status.folders.forEach(folder => {
-                    const folderDiv = this.statusContainer.createDiv();
-                    folderDiv.createEl('p', { text: `${folder.label}: ${folder.state}` });
-                });
-            }
-            
-        } catch (error) {
-            this.statusContainer.createEl('p', { text: 'Failed to get status from Syncthing' });
-        }
-    }
-}
-
 module.exports = class SyncthingSyncPlugin extends Plugin {
     async onload() {
-        console.log('Loading SyncthingSync plugin');
         
         await this.loadSettings();
         this.addSettingTab(new SyncthingSyncSettingTab(this.app, this));
 
         this.syncthingProcess = null;
-        this.syncInterval = null;
         this.statusBarItem = null;
 
         // Add ribbon icon
-        this.addRibbonIcon('sync', 'Syncthing Sync', () => {
-            new SyncStatusModal(this.app, this).open();
+        this.addRibbonIcon('sync', 'Syncthing Sync Settings', () => {
+            new SyncthingSettingsModal(this.app, this).open();
         });
 
         // Commands
@@ -407,11 +496,7 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
             id: 'open-syncthing-ui',
             name: 'Open Syncthing Web UI',
             callback: () => {
-                if (this.settings.webUIEnabled) {
-                    require('electron').shell.openExternal(`http://localhost:${this.settings.port}`);
-                } else {
-                    new Notice('Web UI is disabled in settings');
-                }
+                window.open(`http://localhost:${this.settings.port}`, '_blank');
             }
         });
 
@@ -425,10 +510,8 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                         await this.saveSettings();
                         new Notice(`Auto-detected Syncthing at: ${detectedPath}`);
                     } else {
-                        console.log('Syncthing auto-detection failed - no executable found');
                     }
                 } catch (error) {
-                    console.error('Error during Syncthing auto-detection:', error);
                 }
             }, 1000);
         }
@@ -437,9 +520,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         if (this.settings.autoStart) {
             setTimeout(() => this.startSyncthing(), 2000);
         }
-
-        // Setup sync interval
-        this.setupSyncInterval();
         
         // Add status bar item
         this.statusBarItem = this.addStatusBarItem();
@@ -466,22 +546,16 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
             this.statusBarItem.addClass('syncthing-stopped');
             this.statusBarItem.removeClass('syncthing-running');
         }
-        
-        // Add click handler to open status modal
-        this.statusBarItem.onClickEvent(() => {
-            new SyncStatusModal(this.app, this).open();
-        });
+    
     }
 
 
     async detectSyncthingPath() {
-        console.log('Starting Syncthing detection...');
         
         // Check manual path first
         if (this.settings.manualPath) {
             const fs = require('fs');
             if (fs.existsSync(this.settings.manualPath)) {
-                console.log('Using manual path:', this.settings.manualPath);
                 return this.settings.manualPath;
             }
         }
@@ -498,12 +572,10 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         
         for (const path of commonPaths) {
             if (fs.existsSync(path)) {
-                console.log('Found Syncthing at:', path);
                 return path;
             }
         }
         
-        console.log('Syncthing executable not found in common paths');
         return null;
     }
 
@@ -524,7 +596,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
 
 
     async analyzeDesktopShortcuts() {
-        console.log('Analyzing desktop shortcuts...');
         
         const shortcutPaths = [
             process.env.USERPROFILE + '\\Desktop\\Syncthing.lnk',
@@ -537,7 +608,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         
         for (const shortcutPath of shortcutPaths) {
             try {
-                console.log(`Checking shortcut: ${shortcutPath}`);
                 
                 // Try to resolve shortcut using PowerShell
                 const targetPath = await this.resolveShortcut(shortcutPath);
@@ -545,7 +615,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                     return targetPath;
                 }
             } catch (error) {
-                console.log(`Shortcut analysis failed for ${shortcutPath}: ${error.message}`);
             }
         }
         
@@ -560,7 +629,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                 
                 exec(`powershell -Command "${powershellCmd}"`, { timeout: 5000 }, (error, stdout, stderr) => {
                     if (error || stderr) {
-                        console.log(`PowerShell shortcut resolution failed: ${error || stderr}`);
                         resolve(null);
                         return;
                     }
@@ -573,14 +641,12 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                     }
                 });
             } catch (error) {
-                console.log(`Shortcut resolution error: ${error.message}`);
                 resolve(null);
             }
         });
     }
 
     async scanDirectories() {
-        console.log('Starting directory scan...');
         
         const scanPaths = [
             'C:\\Program Files',
@@ -598,7 +664,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                     return found;
                 }
             } catch (error) {
-                console.log(`Directory scan failed for ${basePath}: ${error.message}`);
             }
         }
         
@@ -719,10 +784,8 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
             try {
                 if (fs.existsSync(lockFile)) {
                     fs.unlinkSync(lockFile);
-                    console.log(`Removed lock file: ${lockFile}`);
                 }
             } catch (error) {
-                console.warn(`Failed to remove lock file ${lockFile}:`, error.message);
             }
         }
 
@@ -736,7 +799,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         
         for (const port of portsToTry) {
             try {
-                console.log(`Checking if Syncthing is running on port ${port}...`);
                 
                 // Use a simpler approach - just try to connect to the port
                 const { exec } = require('child_process');
@@ -753,7 +815,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                 });
                 
                 if (isPortOpen) {
-                    console.log(`Syncthing detected running on port ${port}`);
                     // Update settings if we found it on a different port
                     if (port !== this.settings.port) {
                         this.settings.port = port;
@@ -762,12 +823,10 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                     return true;
                 }
             } catch (error) {
-                console.log(`Port ${port} check failed: ${error.message}`);
                 continue;
             }
         }
         
-        console.log('Syncthing not detected on any common ports');
         return false;
     }
 
@@ -778,14 +837,12 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
             if (process.platform === 'win32') {
                 exec('taskkill /F /IM syncthing.exe', (error) => {
                     if (error && !error.message.includes('not found')) {
-                        console.warn('Failed to kill existing syncthing processes:', error.message);
                     }
                     resolve();
                 });
             } else {
                 exec('pkill -f syncthing', (error) => {
                     if (error && !error.message.includes('No such process')) {
-                        console.warn('Failed to kill existing syncthing processes:', error.message);
                     }
                     resolve();
                 });
@@ -797,9 +854,8 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         // First check if Syncthing is already running externally
         const isRunning = await this.checkSyncthingRunning();
         if (isRunning) {
-            console.log('Syncthing detected running externally');
-            this.syncthingProcess = { external: true }; // Mark as externally managed
-            this.updateStatusBar('Running (External)');
+                this.syncthingProcess = { running: true };
+            this.updateStatusBar('Running');
             if (this.settings.showNotifications) {
                 new Notice('Connected to running Syncthing instance');
             }
@@ -807,7 +863,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         }
         
         // If not running externally, try to detect and start our own instance
-        console.log('Syncthing not detected running, attempting to start...');
 
         if (this.syncthingProcess) {
             if (this.settings.showNotifications) {
@@ -828,7 +883,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
 4. Set manual path in plugin settings if needed`;
                 
                 new Notice('Syncthing not found - check console for installation instructions', 8000);
-                console.error(installMsg);
                 throw new Error('Syncthing executable not found. Syncthing must be installed and running separately.');
             }
             
@@ -851,7 +905,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
                 '--no-restart'
             ];
 
-            console.log(`Starting Syncthing with args:`, args);
             this.syncthingProcess = spawn(syncthingPath, args, {
                 detached: false,
                 stdio: ['ignore', 'pipe', 'pipe'],
@@ -859,16 +912,13 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
             });
 
             this.syncthingProcess.on('error', (error) => {
-                console.error('Syncthing error:', error);
                 new Notice(`Failed to start Syncthing: ${error.message}`);
                 this.syncthingProcess = null;
             });
 
             this.syncthingProcess.on('exit', (code) => {
-                console.log(`Syncthing exited with code ${code}`);
                 this.syncthingProcess = null;
                 if (code !== 0 && code !== null) {
-                    console.error(`Syncthing exited with error code: ${code}`);
                     if (this.settings.showNotifications) {
                         new Notice(`Syncthing stopped unexpectedly (code: ${code})`);
                     }
@@ -881,14 +931,14 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
             // Capture stderr for debugging
             this.syncthingProcess.stderr.on('data', (data) => {
                 const errorMsg = data.toString();
-                console.error('Syncthing stderr:', errorMsg);
                 if (errorMsg.includes('bind: address already in use')) {
                     new Notice('Syncthing port is already in use. Try a different port in settings.');
                 }
             });
             
+            // Capture stdout but don't log to console
             this.syncthingProcess.stdout.on('data', (data) => {
-                console.log('Syncthing stdout:', data.toString());
+                // Process stdout data if needed
             });
 
             // Wait a moment for startup
@@ -941,17 +991,23 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         }
 
         try {
-            this.syncthingProcess.kill('SIGTERM');
-            this.syncthingProcess = null;
-            if (this.settings.showNotifications) {
-                new Notice('Syncthing stopped');
+            // Only try to kill if it's a process we started (has kill method)
+            if (this.syncthingProcess.kill && typeof this.syncthingProcess.kill === 'function') {
+                this.syncthingProcess.kill('SIGTERM');
+                if (this.settings.showNotifications) {
+                    new Notice('Syncthing stopped');
+                }
+            } else {
+                // External Syncthing process - just clear our reference
+                console.log('Syncthing is running externally, cannot stop it from plugin');
             }
+            this.syncthingProcess = null;
             this.updateStatusBar();
         } catch (error) {
             console.error('Failed to stop Syncthing:', error);
-            new Notice(`Failed to stop Syncthing: ${error.message}`);
+            this.syncthingProcess = null;
+            this.updateStatusBar();
         }
-        this.updateStatusBar();
     }
 
     async restartSyncthing() {
@@ -962,7 +1018,7 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         setTimeout(() => this.startSyncthing(), 2000);
     }
 
-    async syncNow() {
+    async syncNow(showNotification = true) {
         if (!this.syncthingProcess) {
             new Notice('Syncthing is not running');
             return;
@@ -971,7 +1027,7 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         try {
             // Since HTTP API calls are blocked by CORS, we'll just show a notice
             // Syncthing will automatically sync based on its configuration
-            if (this.settings.showNotifications) {
+            if (this.settings.showNotifications && showNotification) {
                 new Notice('Syncthing is running - sync will happen automatically');
             }
             console.log('Sync requested - Syncthing handles sync automatically');
@@ -981,56 +1037,23 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
         }
     }
 
-    async getSyncthingStatus() {
-        if (!this.syncthingProcess) {
-            return null;
-        }
-
-        // HTTP API calls are blocked by CORS in Obsidian
-        // Return basic status based on process existence
-        return {
-            version: 'Unknown (CORS blocked)',
-            uptime: 'Running',
-            folders: []
-        };
-    }
-
-    setupSyncInterval() {
-        if (this.syncInterval) {
-            clearInterval(this.syncInterval);
-            this.syncInterval = null;
-        }
-
-        if (this.settings.syncInterval > 0) {
-            this.syncInterval = setInterval(() => {
-                if (this.syncthingProcess) {
-                    this.syncNow();
-                }
-            }, this.settings.syncInterval * 1000);
-        }
-    }
-
     async verifyExecutable(path) {
         return new Promise((resolve) => {
             try {
                 const fs = require('fs');
-                console.log(`Verifying executable: ${path}`);
                 
                 // First check if file exists
                 if (!fs.existsSync(path)) {
-                    console.log(`File does not exist: ${path}`);
                     resolve(false);
                     return;
                 }
                 
                 // For known working path, skip version check to avoid timeout
                 if (path.includes('syncthing.exe') && fs.existsSync(path)) {
-                    console.log(`File exists and is syncthing executable: ${path}`);
                     resolve(true);
                     return;
                 }
                 
-                console.log(`File exists, testing execution: ${path}`);
                 const { spawn } = require('child_process');
                 const child = spawn(path, ['--version'], { 
                     stdio: ['ignore', 'pipe', 'pipe'],
@@ -1076,12 +1099,6 @@ module.exports = class SyncthingSyncPlugin extends Plugin {
     }
 
     onunload() {
-        console.log('Unloading SyncthingSync plugin');
-        
-        if (this.syncInterval) {
-            clearInterval(this.syncInterval);
-        }
-
         if (this.syncthingProcess) {
             this.stopSyncthing();
         }
